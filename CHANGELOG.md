@@ -1,5 +1,14 @@
 # Changelog
 
+## 3.3.0
+- Added scale-aware clustering and temporary marker spreading at close zoom levels.
+- Rebuilt the mobile location browser controls into clearly separated, full-width sections.
+- Added three-position detail-sheet refinement, long-press marker actions, nearest-visible objective, Island Explorer, route-remaining action, and local reference screenshots.
+- Improved iPhone safe-area spacing, landscape behavior, scrolling, touch targets, and animation timing.
+- Preserved database version 7, user-data version 3, storage key `acbf-companion-m3`, marker IDs, routes, progress, notes, favorites, branding, and offline support.
+
+# Changelog
+
 ## 3.2.0 — Resynced Treasure & Discovery Database Expansion
 
 - Added the full documented set of 26 Black Flag Resynced buried-treasure dig locations with map-source coordinates, landmark guidance, prerequisites and rewards.

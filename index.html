@@ -7,7 +7,7 @@
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="apple-mobile-web-app-title" content="Animus Companion">
-  <title>Animus Companion 3.0.1</title>
+  <title>Animus Companion 3.3.0</title>
   <link rel="manifest" href="./manifest.webmanifest">
   <link rel="apple-touch-icon" sizes="180x180" href="./icon-180.png">
   <link rel="icon" type="image/png" sizes="64x64" href="./favicon-64.png">
@@ -28,7 +28,7 @@
     </button>
     <div class="header-actions">
       <button id="globalSearchButton" class="icon-button" type="button" aria-label="Search">⌕</button>
-      <button id="versionButton" class="version-button" type="button">v3.0.1 <small>Branding</small></button>
+      <button id="versionButton" class="version-button" type="button">v3.3.0 <small>Refinement</small></button>
     </div>
   </header>
 
@@ -65,6 +65,7 @@
             </div>
             <div id="scanWave" class="scan-wave"></div>
             <div class="map-controls">
+              <button id="nearestButton" class="nearest-control" type="button" aria-label="Find nearest visible incomplete location">◎</button>
               <button id="zoomIn" type="button" aria-label="Zoom in">+</button>
               <button id="zoomOut" type="button" aria-label="Zoom out">−</button>
               <button id="reset" type="button" aria-label="Reset map">↻</button>
@@ -77,10 +78,13 @@
         <aside id="locationBrowser" class="location-browser panel">
           <div class="browser-heading"><div><h2>Locations</h2><span id="locationCount"></span></div><button id="closeBrowser" class="icon-button browser-close" type="button">✕</button></div>
           <label class="search-box"><span>⌕</span><input id="locationSearch" type="search" placeholder="Search locations, rewards, coordinates"></label>
-          <label class="search-scope"><input id="searchAllLocations" type="checkbox"><span>Search entire database</span></label>
-          <div id="quickFilters" class="quick-filter-row"></div>
-          <div id="locationFilters" class="filter-row"></div>
-          <label class="region-filter"><span>Region</span><select id="regionFilter"></select></label>
+          <div class="search-controls">
+            <label class="search-scope"><input id="searchAllLocations" type="checkbox"><span>Search entire database</span></label>
+            <section class="filter-section" aria-labelledby="quickFilterHeading"><div class="filter-section-heading"><span id="quickFilterHeading">Quick filters</span><small>Swipe for more</small></div><div id="quickFilters" class="quick-filter-row"></div></section>
+            <section class="filter-section" aria-labelledby="categoryFilterHeading"><div class="filter-section-heading"><span id="categoryFilterHeading">Category</span><small>Choose one</small></div><div id="locationFilters" class="filter-row"></div></section>
+            <label class="region-filter"><span>Region</span><select id="regionFilter"></select></label>
+            <div id="islandExplorer" class="island-explorer" hidden></div>
+          </div>
           <div id="locationDirectory" class="location-directory"></div>
         </aside>
       </div>
@@ -96,6 +100,8 @@
   </main>
 
   <div id="toast" class="toast" hidden></div>
+  <div id="markerContextMenu" class="marker-context-menu" hidden aria-live="polite"></div>
+  <input id="contextScreenshotInput" type="file" accept="image/*" hidden>
   <div id="modalBackdrop" class="modal-backdrop" hidden></div>
 
   <aside id="filterDrawer" class="drawer" aria-hidden="true">

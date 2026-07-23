@@ -50,3 +50,58 @@
   .map-topbar{height:44px}
   .active-filter-summary{min-height:32px;padding-block:3px}
 }
+
+
+/* v3.3.0 Apple Maps-quality usability refinement */
+.marker{transition:left .22s ease,top .22s ease,transform .18s ease,opacity .18s ease;will-change:left,top,transform}
+.marker.spread-marker{box-shadow:0 0 0 2px #061012,0 6px 18px #000a}
+.marker.cluster{transition:transform .2s ease,opacity .2s ease,background .2s ease}
+.search-controls{display:grid;gap:12px;padding:0 12px 10px;min-width:0}
+.search-controls .search-scope,.search-controls .region-filter{margin:0}
+.filter-section{display:grid;gap:7px;min-width:0}
+.filter-section-heading{display:flex;align-items:center;justify-content:space-between;gap:10px;color:#d9e1df;font-size:.78rem;font-weight:700}
+.filter-section-heading small{font-size:.64rem;color:var(--muted);font-weight:500}
+.quick-filter-row,.filter-row{margin:0;padding:2px 0 5px;gap:8px;overflow-x:auto;overflow-y:hidden;scroll-snap-type:x proximity;-webkit-overflow-scrolling:touch}
+.filter-chip{min-height:42px;padding:9px 14px;font-size:.76rem;scroll-snap-align:start;flex:0 0 auto}
+.region-filter{display:grid;gap:7px;font-weight:700;color:#d9e1df}
+.region-filter select{width:100%;height:48px;padding:0 14px;font-size:1rem;border-radius:12px}
+.location-browser{background:#071113f5;backdrop-filter:blur(18px);-webkit-backdrop-filter:blur(18px)}
+.location-directory{overscroll-behavior:contain;-webkit-overflow-scrolling:touch}
+.location-row{min-height:72px;padding:13px 8px;grid-template-columns:38px minmax(0,1fr) auto}
+.location-row b{font-size:.96rem;line-height:1.2}
+.location-row small{line-height:1.35}
+.island-explorer{display:grid;gap:8px;border:1px solid #3c575b;background:#0b191b;border-radius:14px;padding:12px}
+.island-explorer>div:first-child{display:grid;gap:2px}
+.island-explorer span{color:var(--gold2);font-size:.66rem;letter-spacing:.08em;text-transform:uppercase}
+.island-explorer strong{font:600 1.05rem Georgia,serif}
+.island-explorer small,.island-explorer p{margin:0;color:var(--muted);font-size:.72rem}
+.island-progress{height:7px;background:#17282b;border-radius:999px;overflow:hidden}
+.island-progress span{display:block;height:100%;background:linear-gradient(90deg,var(--teal),var(--gold));border-radius:inherit}
+.nearest-control{color:var(--gold2);border-color:#826a3d!important;background:#1d1a12!important}
+.marker-context-menu{position:fixed;z-index:260;width:min(260px,calc(100vw - 24px));display:grid;gap:5px;padding:10px;background:#071113f8;border:1px solid #527077;border-radius:15px;box-shadow:0 18px 50px #000c;backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px)}
+.marker-context-menu[hidden]{display:none}
+.marker-context-menu strong{padding:5px 7px 8px;color:var(--gold2);font:600 .95rem Georgia,serif}
+.marker-context-menu button{text-align:left;min-height:42px;background:#0c1a1d}
+.saved-screenshot{display:grid;gap:8px;margin:8px 0 14px}
+.saved-screenshot img{width:100%;max-height:320px;object-fit:contain;border:1px solid #344d51;border-radius:12px;background:#020607}
+.detail-sheet{transition:transform .28s cubic-bezier(.22,.8,.22,1),height .28s cubic-bezier(.22,.8,.22,1)}
+.sheet-handle{height:6px;width:62px;touch-action:none}
+@media(max-width:860px){
+  .location-browser{inset:auto 6px calc(66px + var(--safe-bottom)) 6px;max-height:min(78dvh,760px);border-radius:20px 20px 14px 14px}
+  .browser-heading{padding:16px 16px 8px}
+  .search-box{margin:8px 12px 10px;min-height:52px;border-radius:15px}
+  .search-box input{height:50px;font-size:1rem}
+  .search-controls{gap:14px;padding-bottom:12px}
+  .location-directory{padding-top:4px}
+}
+@media(max-width:430px){
+  .map-controls{bottom:74px}
+  .map-status-pill{max-width:calc(100% - 76px)}
+  .location-row .coord{max-width:72px;text-align:right}
+  .detail-sheet[data-size="compact"]{height:30dvh}
+  .detail-sheet[data-size="half"]{height:62dvh}
+}
+@media(orientation:landscape) and (max-height:520px){
+  .location-browser{top:6px;right:6px;bottom:6px;left:auto;width:min(420px,48vw);max-height:none}
+  .map-controls{bottom:10px}
+}

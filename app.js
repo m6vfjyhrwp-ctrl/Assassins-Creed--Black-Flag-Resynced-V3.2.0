@@ -4,7 +4,7 @@
   const systems = window.ACBF_JACKDAW_SYSTEMS || [];
   const STORE = "acbf-companion-m3";
   const BACKUP_FORMAT = "animus-companion-backup";
-  const APP_VERSION = "3.0.0";
+  const APP_VERSION = "3.3.0";
   const STATUS_VALUES = ["not-started", "discovered", "attempted", "completed", "needs-recheck"];
   const MODE_COPY = {
     normal: "Balanced visibility. All stored locations are visible with full details.",
@@ -54,6 +54,8 @@
   let devTaps = 0;
   let browserOpen = false;
   let sheetTouchStart = null;
+  let contextLocationId = null;
+  let suppressMarkerClickUntil = 0;
 
   function save() {
     data.version = window.ACBF_USER_DATA_VERSION || 3;
@@ -151,15 +153,51 @@
 
   function clusterLocations(list) {
     const mapState = window.ACBF_MAP?.getState?.() || { scale: 1 };
-    if (mapState.scale >= 1.75 || list.length < 25) return list.map(location => ({ kind: "location", location }));
-    const cellSize = mapState.scale < 1.25 ? 10 : 7;
-    const buckets = new Map();
-    list.forEach(location => {
-      const key = `${Math.floor(location.mapPosition.x / cellSize)}:${Math.floor(location.mapPosition.y / cellSize)}`;
-      if (!buckets.has(key)) buckets.set(key, []);
-      buckets.get(key).push(location);
+    const scale = mapState.scale || 1;
+    const viewport = $("viewport");
+    const width = Math.max(320, viewport?.clientWidth || 320);
+    const height = Math.max(320, viewport?.clientHeight || 320);
+
+    if (scale < 1.9 && list.length >= 18) {
+      const cellSize = scale < 1.25 ? 9.5 : 6.5;
+      const buckets = new Map();
+      list.forEach(location => {
+        const key = `${Math.floor(location.mapPosition.x / cellSize)}:${Math.floor(location.mapPosition.y / cellSize)}`;
+        if (!buckets.has(key)) buckets.set(key, []);
+        buckets.get(key).push(location);
+      });
+      return [...buckets.values()].map(group => group.length === 1
+        ? { kind: "location", location: group[0], x: group[0].mapPosition.x, y: group[0].mapPosition.y }
+        : { kind: "cluster", group, x: group.reduce((sum, item) => sum + item.mapPosition.x, 0) / group.length, y: group.reduce((sum, item) => sum + item.mapPosition.y, 0) / group.length });
+    }
+
+    // At closer zoom levels, nearby pins are visually spread without changing stored coordinates.
+    const thresholdPx = scale >= 4 ? 34 : scale >= 2.8 ? 42 : 48;
+    const remaining = [...list];
+    const groups = [];
+    while (remaining.length) {
+      const seed = remaining.shift();
+      const group = [seed];
+      for (let index = remaining.length - 1; index >= 0; index--) {
+        const candidate = remaining[index];
+        const dx = (candidate.mapPosition.x - seed.mapPosition.x) / 100 * width * scale;
+        const dy = (candidate.mapPosition.y - seed.mapPosition.y) / 100 * height * scale;
+        if (Math.hypot(dx, dy) < thresholdPx) group.push(remaining.splice(index, 1)[0]);
+      }
+      groups.push(group);
+    }
+
+    return groups.flatMap(group => {
+      if (group.length === 1) return [{ kind: "location", location: group[0], x: group[0].mapPosition.x, y: group[0].mapPosition.y }];
+      const radiusPx = Math.min(58, 23 + group.length * 3.4);
+      return group.map((location, index) => {
+        const angle = -Math.PI / 2 + index * (Math.PI * 2 / group.length);
+        const ring = group.length > 8 && index >= 8 ? 1.55 : 1;
+        const dxPercent = Math.cos(angle) * radiusPx * ring / (width * scale) * 100;
+        const dyPercent = Math.sin(angle) * radiusPx * ring / (height * scale) * 100;
+        return { kind: "location", location, x: location.mapPosition.x + dxPercent, y: location.mapPosition.y + dyPercent, displaced: true };
+      });
     });
-    return [...buckets.values()].map(group => group.length === 1 ? { kind: "location", location: group[0] } : { kind: "cluster", group, x: group.reduce((s, l) => s + l.mapPosition.x, 0) / group.length, y: group.reduce((s, l) => s + l.mapPosition.y, 0) / group.length });
   }
 
   function markerClass(location) {
@@ -191,15 +229,86 @@
       const button = document.createElement("button");
       button.type = "button";
       button.className = markerClass(location) + (routeIndex.has(location.id) ? " route-stop" : "");
-      button.style.left = `${location.mapPosition.x}%`; button.style.top = `${location.mapPosition.y}%`;
+      button.style.left = `${item.x ?? location.mapPosition.x}%`; button.style.top = `${item.y ?? location.mapPosition.y}%`;
+      if (item.displaced) button.classList.add("spread-marker");
       button.dataset.id = location.id;
       if (routeIndex.has(location.id)) button.dataset.routeOrder = routeIndex.get(location.id);
       button.setAttribute("aria-label", data.settings.mode === "explorer" && !revealForMode(location) ? "Undiscovered location" : location.name);
       button.innerHTML = `<span>${location.icon || "•"}</span>`;
-      button.addEventListener("pointerdown", event => event.stopPropagation());
-      button.addEventListener("click", event => { event.stopPropagation(); openLocation(location.id); });
+      let longPressTimer = 0;
+      let startPoint = null;
+      button.addEventListener("pointerdown", event => {
+        event.stopPropagation();
+        startPoint = { x: event.clientX, y: event.clientY };
+        longPressTimer = window.setTimeout(() => {
+          suppressMarkerClickUntil = Date.now() + 700;
+          openMarkerContext(location.id, event.clientX, event.clientY);
+          navigator.vibrate?.(18);
+        }, 520);
+      });
+      button.addEventListener("pointermove", event => {
+        if (startPoint && Math.hypot(event.clientX - startPoint.x, event.clientY - startPoint.y) > 10) clearTimeout(longPressTimer);
+      });
+      ["pointerup", "pointercancel", "pointerleave"].forEach(type => button.addEventListener(type, () => clearTimeout(longPressTimer)));
+      button.addEventListener("contextmenu", event => { event.preventDefault(); openMarkerContext(location.id, event.clientX, event.clientY); });
+      button.addEventListener("click", event => { if (Date.now() < suppressMarkerClickUntil) return; event.stopPropagation(); closeMarkerContext(); openLocation(location.id); });
       host.appendChild(button);
     });
+  }
+
+  function closeMarkerContext() {
+    const menu = $("markerContextMenu");
+    if (!menu) return;
+    menu.hidden = true;
+    menu.innerHTML = "";
+    contextLocationId = null;
+  }
+
+  function openMarkerContext(id, clientX, clientY) {
+    const location = byId(id); if (!location) return;
+    const state = stateFor(id);
+    contextLocationId = id;
+    const menu = $("markerContextMenu");
+    menu.innerHTML = `<strong>${esc(location.name)}</strong><button data-context-action="favorite">${state.favorite ? "★ Remove favorite" : "☆ Favorite"}</button><button data-context-action="complete">${state.status === "completed" ? "↶ Mark incomplete" : "✓ Mark complete"}</button><button data-context-action="route">${data.route.ids.includes(id) ? "Remove from route" : "⌁ Route here"}</button><button data-context-action="notes">✎ Notes</button><button data-context-action="screenshot">▧ Add screenshot</button>`;
+    menu.hidden = false;
+    const pad = 12;
+    const rect = menu.getBoundingClientRect();
+    menu.style.left = `${Math.max(pad, Math.min(window.innerWidth - rect.width - pad, clientX - rect.width / 2))}px`;
+    menu.style.top = `${Math.max(pad + 44, Math.min(window.innerHeight - rect.height - pad, clientY - rect.height - 12))}px`;
+    menu.querySelectorAll("[data-context-action]").forEach(button => button.onclick = () => {
+      const action = button.dataset.contextAction;
+      if (action === "favorite") state.favorite = !state.favorite;
+      if (action === "complete") state.status = state.status === "completed" ? "not-started" : "completed";
+      if (action === "route") data.route.ids = data.route.ids.includes(id) ? data.route.ids.filter(item => item !== id) : [...data.route.ids, id];
+      if (action === "notes") { closeMarkerContext(); openLocation(id); setTimeout(() => $("noteField")?.focus(), 260); return; }
+      if (action === "screenshot") { $("contextScreenshotInput").click(); return; }
+      save(); closeMarkerContext(); renderAll();
+    });
+  }
+
+  function nearestToMapCenter() {
+    const candidates = getVisibleLocations().filter(location => stateFor(location.id).status !== "completed");
+    if (!candidates.length) return toast("No incomplete visible locations");
+    const map = window.ACBF_MAP?.getState?.() || { x: 0, y: 0, scale: 1 };
+    const viewport = $("viewport");
+    const centerX = ((viewport.clientWidth / 2 - map.x) / map.scale) / viewport.clientWidth * 100;
+    const centerY = ((viewport.clientHeight / 2 - map.y) / map.scale) / viewport.clientHeight * 100;
+    const nearest = [...candidates].sort((a, b) => Math.hypot(a.mapPosition.x - centerX, a.mapPosition.y - centerY) - Math.hypot(b.mapPosition.x - centerX, b.mapPosition.y - centerY))[0];
+    if (!data.route.ids.includes(nearest.id)) data.route.ids = [nearest.id, ...data.route.ids.filter(id => id !== nearest.id)];
+    save(); openLocation(nearest.id, true); drawRoute(); toast(`Nearest visible objective: ${nearest.name}`);
+  }
+
+  function renderIslandExplorer() {
+    const host = $("islandExplorer");
+    const region = data.filters.region;
+    if (!host || region === "all") { if (host) host.hidden = true; return; }
+    const list = locations.filter(location => location.region === region);
+    const stats = completion(list);
+    const remaining = list.filter(location => stateFor(location.id).status !== "completed");
+    const counts = Object.entries(remaining.reduce((acc, location) => { acc[location.type] = (acc[location.type] || 0) + 1; return acc; }, {})).sort((a,b)=>b[1]-a[1]).slice(0,4);
+    host.hidden = false;
+    host.innerHTML = `<div><span>Island Explorer</span><strong>${esc(region)}</strong><small>${stats.completed}/${stats.total} complete • ${stats.percent}%</small></div><div class="island-progress"><span style="width:${stats.percent}%"></span></div><p>${counts.length ? counts.map(([type,count]) => `${count} ${label(type)}`).join(" • ") : "Everything complete"}</p><button id="routeRegionRemaining" class="primary" ${remaining.length ? "" : "disabled"}>Route remaining (${remaining.length})</button>`;
+    $("routeRegionRemaining")?.addEventListener("click", () => { data.route.ids = nearestRoute(remaining).map(location => location.id); save(); drawRoute(); renderMarkers(); toast(`Route built for ${region}`); });
   }
 
   function renderCategoryControls() {
@@ -277,6 +386,7 @@
         ${ready.missing.length ? `<section class="detail-block"><span>Jackdaw recommendation</span><p>${esc(ready.missing.join(" • "))}</p></section>` : ""}
       `}
       <h3>Checklist</h3><div class="checklist">${(location.checklist || []).map((item, index) => `<label><input type="checkbox" data-check="${index}" ${state.checklist[index] ? "checked" : ""}> ${esc(item)}</label>`).join("") || `<p class="empty-state">No checklist stored.</p>`}</div>
+      ${state.screenshot ? `<h3>Reference Screenshot</h3><div class="saved-screenshot"><img src="${state.screenshot}" alt="Saved reference for ${esc(location.name)}"><button id="removeScreenshot" class="danger">Remove screenshot</button></div>` : ""}
       <h3>Captain’s Notes</h3><textarea id="noteField" rows="4" placeholder="Your private notes…">${esc(state.note)}</textarea>
     `;
     $("closeSheetButton").onclick = closeSheet;
@@ -288,6 +398,7 @@
     };
     $("favoriteToggle").onchange = event => { state.favorite = event.target.checked; save(); renderAll(); };
     $("noteField").oninput = event => { state.note = event.target.value; save(); };
+    $("removeScreenshot")?.addEventListener("click", () => { delete state.screenshot; save(); openLocation(id); });
     document.querySelectorAll("[data-check]").forEach(control => control.onchange = event => { state.checklist[event.target.dataset.check] = event.target.checked; save(); renderProgress(); });
     $("routeToggle").onclick = () => {
       data.route.ids = inRoute ? data.route.ids.filter(routeId => routeId !== id) : [...data.route.ids, id];
@@ -435,7 +546,7 @@
     ["hideCompleted", "favoritesOnly", "incompleteOnly", "discoveredOnly", "verifiedOnly", "legacyOnly"].forEach(key => $(key).checked = !!data.filters[key]);
   }
   function renderAll() {
-    renderCategoryControls(); renderQuickFilters(); renderRegionFilter(); renderFilterState(); renderOverview(); renderDirectory(); renderMarkers(); drawRoute(); renderJackdaw(); renderProgress(); renderLog(); renderSettings(); renderRouteCandidateSummary();
+    renderCategoryControls(); renderQuickFilters(); renderRegionFilter(); renderFilterState(); renderOverview(); renderIslandExplorer(); renderDirectory(); renderMarkers(); drawRoute(); renderJackdaw(); renderProgress(); renderLog(); renderSettings(); renderRouteCandidateSummary();
   }
 
   function switchTab(name) {
@@ -506,6 +617,17 @@
   $("routeStrategy").onchange = event => { data.route.strategy = event.target.value; save(); };
   $("buildRoute").onclick = buildRoute; $("reverseRoute").onclick = reverseRoute; $("clearRoute").onclick = clearRoute;
   $("scanButton").onclick = runScan;
+  $("nearestButton").onclick = nearestToMapCenter;
+  $("contextScreenshotInput").onchange = event => {
+    const file = event.target.files?.[0];
+    const id = contextLocationId;
+    if (!file || !id) return;
+    if (file.size > 1800000) { toast("Choose an image smaller than 1.8 MB"); event.target.value = ""; return; }
+    const reader = new FileReader();
+    reader.onload = () => { stateFor(id).screenshot = reader.result; save(); closeMarkerContext(); toast("Screenshot saved locally"); if (selectedId === id) openLocation(id); };
+    reader.readAsDataURL(file); event.target.value = "";
+  };
+  document.addEventListener("pointerdown", event => { if (!event.target.closest("#markerContextMenu") && !event.target.closest(".marker")) closeMarkerContext(); });
   $("fullScreenButton").onclick = enterFullScreen; $("exitFullScreenButton").onclick = exitFullScreen;
   $("viewport").addEventListener("click", event => { if (event.target.closest("button")) return; if (!document.body.classList.contains("app-fullscreen")) enterFullScreen(); });
   $("sheetBackdrop").onclick = closeSheet; $("sheetHandle").onclick = cycleSheet;
