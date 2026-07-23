@@ -1,0 +1,131 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,user-scalable=no">
+  <meta name="theme-color" content="#050a0b">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="Animus Companion">
+  <title>Animus Companion 3.0.1</title>
+  <link rel="manifest" href="./manifest.webmanifest">
+  <link rel="apple-touch-icon" sizes="180x180" href="./icon-180.png">
+  <link rel="icon" type="image/png" sizes="64x64" href="./favicon-64.png">
+  <link rel="icon" type="image/png" sizes="32x32" href="./favicon-32.png">
+  <link rel="icon" type="image/png" sizes="16x16" href="./favicon-16.png">
+  <link rel="stylesheet" href="./styles.css">
+</head>
+<body>
+  <div id="bootScreen" class="boot-screen" aria-label="Loading Animus Companion">
+    <img class="branding-splash" src="./branding-splash.png" alt="Animus Companion — Assassin’s Creed IV Black Flag Resynced Edition">
+    <div class="boot-track" aria-hidden="true"><span></span></div>
+  </div>
+
+  <header class="app-header">
+    <button id="brandHome" class="brand-lockup" type="button" aria-label="Open map">
+      <img src="./man-o-war-hybrid.png" alt="Man-O-War crest">
+      <span><strong>Animus Companion</strong><small>Black Flag Resynced</small></span>
+    </button>
+    <div class="header-actions">
+      <button id="globalSearchButton" class="icon-button" type="button" aria-label="Search">⌕</button>
+      <button id="versionButton" class="version-button" type="button">v3.0.1 <small>Branding</small></button>
+    </div>
+  </header>
+
+  <main>
+    <nav class="tab-bar" aria-label="Primary navigation">
+      <button class="tab active" data-tab="map">🧭<span>Map</span></button>
+      <button class="tab" data-tab="jackdaw">⛵<span>Jackdaw</span></button>
+      <button class="tab" data-tab="progress">▥<span>Progress</span></button>
+      <button class="tab" data-tab="log">📖<span>Log</span></button>
+      <button class="tab" data-tab="settings">⚙<span>Settings</span></button>
+    </nav>
+
+    <section id="mapPanel" class="app-panel active map-panel">
+      <div class="map-shell">
+        <section id="mapColumn" class="map-column panel">
+          <div class="map-topbar">
+            <div class="map-context"><b id="mapTitle">Caribbean Map</b><small id="mapContext">All visible locations</small></div>
+            <div class="map-action-row">
+              <button id="filterButton" class="icon-button" type="button" aria-label="Filters">☷</button>
+              <button id="scanButton" class="icon-button" type="button" aria-label="Animus Scan">⌁</button>
+              <button id="routeButton" class="icon-button" type="button" aria-label="Route planner">⌘</button>
+              <button id="fullScreenButton" class="icon-button" type="button" aria-label="Full screen map">⛶</button>
+              <button id="exitFullScreenButton" class="icon-button exit-fullscreen" type="button" aria-label="Exit full screen">✕</button>
+            </div>
+          </div>
+
+          <div id="activeFilterSummary" class="active-filter-summary"></div>
+
+          <section id="viewport" class="viewport" aria-label="Interactive Caribbean map">
+            <div id="stage" class="stage">
+              <img class="map-image" src="./caribbean-map.jpg" alt="Caribbean map">
+              <svg id="routeLayer" class="route-layer" viewBox="0 0 1000 1000" preserveAspectRatio="none"></svg>
+              <div id="markerLayer" class="marker-layer"></div>
+            </div>
+            <div id="scanWave" class="scan-wave"></div>
+            <div class="map-controls">
+              <button id="zoomIn" type="button" aria-label="Zoom in">+</button>
+              <button id="zoomOut" type="button" aria-label="Zoom out">−</button>
+              <button id="reset" type="button" aria-label="Reset map">↻</button>
+            </div>
+            <button id="mapStatusButton" class="map-status-pill" type="button"><strong id="visibleCompletion">0%</strong><span id="visibleCount">0 visible</span></button>
+          </section>
+          <section id="routeSummary" class="route-summary" hidden></section>
+        </section>
+
+        <aside id="locationBrowser" class="location-browser panel">
+          <div class="browser-heading"><div><h2>Locations</h2><span id="locationCount"></span></div><button id="closeBrowser" class="icon-button browser-close" type="button">✕</button></div>
+          <label class="search-box"><span>⌕</span><input id="locationSearch" type="search" placeholder="Search locations, rewards, coordinates"></label>
+          <label class="search-scope"><input id="searchAllLocations" type="checkbox"><span>Search entire database</span></label>
+          <div id="quickFilters" class="quick-filter-row"></div>
+          <div id="locationFilters" class="filter-row"></div>
+          <label class="region-filter"><span>Region</span><select id="regionFilter"></select></label>
+          <div id="locationDirectory" class="location-directory"></div>
+        </aside>
+      </div>
+    </section>
+
+    <section id="jackdawPanel" class="app-panel content-panel"><section class="hero-card"><span>SHIP SYSTEMS</span><h2>Jackdaw Readiness</h2><p>Track upgrades and see warnings for filtered routes and difficult encounters.</p></section><section class="panel"><div id="jackdawControls" class="upgrade-grid"></div></section><section class="panel readiness"><div><span>Overall readiness</span><strong id="overallReadiness">0%</strong></div><div class="progress-track"><span id="overallReadinessBar"></span></div><p id="readinessMessage"></p><div id="upgradeSuggestions"></div></section></section>
+
+    <section id="progressPanel" class="app-panel content-panel"><section class="hero-card"><span>SYNCHRONIZATION</span><h2>World Progress</h2><p>Overall and filtered completion by category and region.</p></section><section class="panel"><div id="progressMetrics" class="metric-grid"></div></section><section class="panel"><h2>Visible-filter progress</h2><div id="visibleProgress"></div></section><section class="panel"><h2>Category progress</h2><div id="categoryProgress"></div></section><section class="panel"><h2>Region progress</h2><div id="regionProgress"></div></section><section class="panel"><h2>Incomplete objectives</h2><div id="locationProgressList"></div></section></section>
+
+    <section id="logPanel" class="app-panel content-panel"><section class="hero-card"><span>EDWARD'S JOURNAL</span><h2>Captain’s Log</h2><p>Automatic completion entries plus searchable personal records.</p></section><section class="panel log-editor"><input id="logTitle" placeholder="Entry title"><textarea id="logBody" rows="4" placeholder="Record your plans, discoveries, or victories…"></textarea><button id="addLogEntry" class="primary">Add entry</button></section><section class="panel"><label class="search-box"><span>⌕</span><input id="logSearch" type="search" placeholder="Search log"></label><div id="logEntries"></div></section></section>
+
+    <section id="settingsPanel" class="app-panel content-panel"><section class="hero-card"><span>COMPANION OPTIONS</span><h2>Settings & Backup</h2></section><section class="panel settings-grid"><label>Play mode<select id="playMode"><option value="normal">Normal — balanced visibility</option><option value="explorer">Explorer — reduce spoilers</option><option value="completionist">Completionist — reveal stored objectives</option></select></label><p id="modeExplanation" class="mode-explanation"></p><label class="switch"><input id="reduceMotion" type="checkbox"><span>Reduce motion</span></label><div class="button-grid"><button id="exportBackup">Export JSON backup</button><label class="file-button">Import JSON backup<input id="importBackup" type="file" accept="application/json"></label><button id="resetProgress" class="danger">Reset progress</button><button id="resetSettings" class="danger ghost">Reset settings</button><button id="fullReset" class="danger">Full app reset</button></div><p id="settingsStatus" class="status-text" aria-live="polite"></p></section><section id="devPanel" class="panel" hidden><h2>Developer Mode</h2><div id="devStats"></div><button id="exportDiagnostics">Export diagnostics</button></section></section>
+  </main>
+
+  <div id="toast" class="toast" hidden></div>
+  <div id="modalBackdrop" class="modal-backdrop" hidden></div>
+
+  <aside id="filterDrawer" class="drawer" aria-hidden="true">
+    <div class="drawer-header"><div><small>MAP DATASET</small><h2>Filters</h2></div><button id="closeFilterDrawer" class="icon-button">✕</button></div>
+    <div id="drawerCategoryFilters" class="drawer-categories"></div>
+    <div class="drawer-options">
+      <label><input id="hideCompleted" type="checkbox"> Hide completed</label>
+      <label><input id="favoritesOnly" type="checkbox"> Favorites only</label>
+      <label><input id="incompleteOnly" type="checkbox"> Incomplete only</label>
+      <label><input id="discoveredOnly" type="checkbox"> Discovered only</label>
+      <label><input id="verifiedOnly" type="checkbox"> Resynced verified only</label>
+      <label><input id="legacyOnly" type="checkbox"> Legacy only</label>
+    </div>
+    <div class="drawer-footer"><button id="clearFilters">Show all</button><button id="applyFilters" class="primary">Apply</button></div>
+  </aside>
+
+  <aside id="routeDrawer" class="drawer" aria-hidden="true">
+    <div class="drawer-header"><div><small>VISIBLE DATASET ONLY</small><h2>Route Planner</h2></div><button id="closeRouteDrawer" class="icon-button">✕</button></div>
+    <label>Route source<select id="routeSource"><option value="visible-incomplete">Visible incomplete</option><option value="visible-all">All visible</option><option value="favorites">Visible favorites</option><option value="manual">Manually selected</option></select></label>
+    <label>Route strategy<select id="routeStrategy"><option value="nearest">Nearest first</option><option value="shortest">Shortest practical route</option><option value="custom">Custom/manual order</option></select></label>
+    <div class="route-drawer-actions"><button id="buildRoute" class="primary">Build route</button><button id="reverseRoute">Reverse</button><button id="clearRoute">Clear route</button></div>
+    <div id="routeCandidateSummary" class="status-card"></div>
+  </aside>
+
+  <div id="sheetBackdrop" class="sheet-backdrop" hidden></div>
+  <aside id="detailSheet" class="detail-sheet" aria-hidden="true" data-size="half">
+    <button id="sheetHandle" class="sheet-handle" type="button" aria-label="Resize location details"></button>
+    <div id="detailContent"></div>
+  </aside>
+
+  <script src="./database.js"></script><script src="./engine.js"></script><script src="./app.js"></script>
+</body>
+</html>

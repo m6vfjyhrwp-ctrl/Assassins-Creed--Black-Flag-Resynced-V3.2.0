@@ -1,0 +1,29 @@
+{
+  "name": "Animus Companion — Black Flag Resynced",
+  "short_name": "Animus Companion",
+  "description": "Offline Caribbean map, progress tracker, Jackdaw planner, Captain’s Log, and backup tools.",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#030708",
+  "theme_color": "#050a0b",
+  "id": "./?pwa=1",
+  "categories": [
+    "games",
+    "utilities"
+  ],
+  "icons": [
+    {
+      "src": "./icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "./icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ]
+}
