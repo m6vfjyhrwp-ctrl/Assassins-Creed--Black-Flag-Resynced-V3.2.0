@@ -248,7 +248,8 @@
     reset: () => document.getElementById("reset")?.click(),
     getState: () => ({ x: state.x, y: state.y, scale: state.scale }),
     zoomTo: zoomAt,
-    focusPercent
+    focusPercent,
+    setState: next => { if (!next || !Number.isFinite(next.scale)) return; stopInertia(); state.scale=clamp(next.scale,state.min,state.max); state.x=Number(next.x)||0; state.y=Number(next.y)||0; draw(); }
   };
 
   draw(false);

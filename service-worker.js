@@ -1,6 +1,6 @@
 "use strict";
-const CACHE="acbf-v3.3.0-usability-refinement";
-const CORE=["./","./index.html","./styles.css","./engine.js","./database.js","./app.js","./caribbean-map.jpg","./man-o-war-hybrid.png","./branding-splash.png","./favicon-16.png","./favicon-32.png","./favicon-64.png","./manifest.webmanifest","./icon-180.png","./icon-192.png","./icon-512.png","./VERSION.json","./CHANGELOG.md","./UPLOAD_INSTRUCTIONS.md","./KNOWN_LIMITATIONS.md","./DATABASE_COVERAGE.md","./TESTING_REPORT.md","./UPGRADE_GUIDE.md","./ARCHITECTURE.md","./TESTING_REPORT_V3.3.0.md","./BUILD_CHECKSUMS.txt"];
+const CACHE="acbf-v3.4.0-seamless-experience";
+const CORE=["./","./index.html","./styles.css","./engine.js","./database.js","./app.js","./caribbean-map.jpg","./man-o-war-hybrid.png","./branding-splash.png","./favicon-16.png","./favicon-32.png","./favicon-64.png","./manifest.webmanifest","./icon-180.png","./icon-192.png","./icon-512.png","./VERSION.json","./CHANGELOG.md","./UPLOAD_INSTRUCTIONS.md","./KNOWN_LIMITATIONS.md","./DATABASE_COVERAGE.md","./TESTING_REPORT.md","./UPGRADE_GUIDE.md","./ARCHITECTURE.md","./TESTING_REPORT_V3.3.0.md","./BUILD_CHECKSUMS.txt","./ACCESSIBILITY_REPORT.md","./BACKUP_AND_RECOVERY.md","./SEAMLESS_EXPERIENCE_IMPLEMENTATION.md"];
 self.addEventListener("install",event=>event.waitUntil(caches.open(CACHE).then(cache=>cache.addAll(CORE)).then(()=>self.skipWaiting())));
 self.addEventListener("activate",event=>event.waitUntil(caches.keys().then(keys=>Promise.all(keys.filter(key=>key!==CACHE).map(key=>caches.delete(key)))).then(()=>self.clients.claim())));
 self.addEventListener("fetch",event=>{

@@ -4,7 +4,7 @@
   const systems = window.ACBF_JACKDAW_SYSTEMS || [];
   const STORE = "acbf-companion-m3";
   const BACKUP_FORMAT = "animus-companion-backup";
-  const APP_VERSION = "3.3.0";
+  const APP_VERSION = "3.4.0";
   const STATUS_VALUES = ["not-started", "discovered", "attempted", "completed", "needs-recheck"];
   const MODE_COPY = {
     normal: "Balanced visibility. All stored locations are visible with full details.",
@@ -13,10 +13,14 @@
   };
   const defaults = {
     version: window.ACBF_USER_DATA_VERSION || 3,
-    settings: { mode: "normal", reduceMotion: false },
+    settings: { mode: "normal", reduceMotion: false, onboardingComplete: false, includeCompletedSuggestions: false },
     filters: { categories: [], hideCompleted: false, favoritesOnly: false, incompleteOnly: false, discoveredOnly: false, verifiedOnly: false, legacyOnly: false, region: "all" },
     locations: {}, jackdaw: Object.fromEntries(systems.map(s => [s.id, 0])), log: [],
-    route: { ids: [], source: "visible-incomplete", strategy: "nearest", manualIds: [] }
+    route: { ids: [], source: "visible-incomplete", strategy: "nearest", manualIds: [] },
+    ui: { activeTab: "map", selectedId: null, sheetSize: "half", searchAcrossAll: false, query: "", nextObjectiveId: null },
+    mapView: { x: 0, y: 0, scale: 1 },
+    playSession: { status: "idle", title: "", ids: [], completedIds: [], skippedIds: [], currentIndex: 0, estimatedMinutes: 0, startedAt: null, pausedAt: null },
+    snapshots: [], pendingCorrections: [], lastBackupAt: null
   };
 
   const $ = id => document.getElementById(id);
@@ -38,7 +42,12 @@
         locations: saved.locations || {},
         jackdaw: { ...defaults.jackdaw, ...(saved.jackdaw || {}) },
         log: Array.isArray(saved.log) ? saved.log : [],
-        route: { ...defaults.route, ...(saved.route || {}), ids: Array.isArray(saved.route?.ids) ? saved.route.ids : [], manualIds: Array.isArray(saved.route?.manualIds) ? saved.route.manualIds : [] }
+        route: { ...defaults.route, ...(saved.route || {}), ids: Array.isArray(saved.route?.ids) ? saved.route.ids.filter(byId) : [], manualIds: Array.isArray(saved.route?.manualIds) ? saved.route.manualIds.filter(byId) : [] },
+        ui: { ...defaults.ui, ...(saved.ui || {}) },
+        mapView: { ...defaults.mapView, ...(saved.mapView || {}) },
+        playSession: { ...defaults.playSession, ...(saved.playSession || {}), ids: Array.isArray(saved.playSession?.ids) ? saved.playSession.ids.filter(byId) : [], completedIds: Array.isArray(saved.playSession?.completedIds) ? saved.playSession.completedIds : [], skippedIds: Array.isArray(saved.playSession?.skippedIds) ? saved.playSession.skippedIds : [] },
+        snapshots: Array.isArray(saved.snapshots) ? saved.snapshots.slice(0, 3) : [],
+        pendingCorrections: Array.isArray(saved.pendingCorrections) ? saved.pendingCorrections : []
       };
     } catch (error) {
       console.error("Save load failed", error);
@@ -47,10 +56,10 @@
   }
 
   const data = safeLoad();
-  let query = "";
+  let query = String(data.ui?.query || "");
   let logQuery = "";
-  let selectedId = null;
-  let searchAcrossAll = false;
+  let selectedId = byId(data.ui?.selectedId) ? data.ui.selectedId : null;
+  let searchAcrossAll = !!data.ui?.searchAcrossAll;
   let devTaps = 0;
   let browserOpen = false;
   let sheetTouchStart = null;
@@ -59,17 +68,24 @@
 
   function save() {
     data.version = window.ACBF_USER_DATA_VERSION || 3;
+    data.ui = { ...(data.ui || defaults.ui), selectedId, searchAcrossAll, query, sheetSize: $("detailSheet")?.dataset.size || data.ui?.sheetSize || "half" };
+    const map = window.ACBF_MAP?.getState?.(); if (map) data.mapView = map;
     localStorage.setItem(STORE, JSON.stringify(data));
   }
   function stateFor(id) {
     return data.locations[id] ||= { status: "not-started", favorite: false, note: "", checklist: {} };
   }
-  function toast(message) {
+  function toast(message, undoAction = null) {
     const element = $("toast");
-    element.textContent = message;
+    element.innerHTML = `<span>${esc(message)}</span>${undoAction ? '<button id="toastUndo" type="button">Undo</button>' : ''}`;
     element.hidden = false;
+    element.setAttribute("role", "status");
     clearTimeout(element.timer);
-    element.timer = setTimeout(() => element.hidden = true, 2400);
+    if (undoAction) $("toastUndo").onclick = () => { undoAction(); element.hidden = true; };
+    const hide = () => element.timer = setTimeout(() => element.hidden = true, 3600);
+    element.onmouseenter = () => clearTimeout(element.timer); element.onmouseleave = hide;
+    element.ontouchstart = () => clearTimeout(element.timer); element.ontouchend = hide;
+    hide();
   }
   function revealForMode(location) {
     return true; // Explorer Mode conceals details rather than removing objectives from the dataset.
@@ -202,7 +218,7 @@
 
   function markerClass(location) {
     const state = stateFor(location.id);
-    return `marker marker-${location.type}${state.status === "completed" ? " completed" : ""}${state.favorite ? " favorite" : ""}${String(location.verification).startsWith("Legacy") ? " legacy" : ""}${selectedId === location.id ? " selected" : ""}`;
+    return `marker marker-${location.type}${state.status === "completed" ? " completed" : ""}${state.favorite ? " favorite" : ""}${String(location.verification).startsWith("Legacy") ? " legacy" : ""}${selectedId === location.id ? " selected" : ""}${data.ui?.nextObjectiveId === location.id ? " next-objective" : ""}`;
   }
   function renderMarkers() {
     const host = $("markerLayer");
@@ -277,8 +293,8 @@
     menu.style.top = `${Math.max(pad + 44, Math.min(window.innerHeight - rect.height - pad, clientY - rect.height - 12))}px`;
     menu.querySelectorAll("[data-context-action]").forEach(button => button.onclick = () => {
       const action = button.dataset.contextAction;
-      if (action === "favorite") state.favorite = !state.favorite;
-      if (action === "complete") state.status = state.status === "completed" ? "not-started" : "completed";
+      if (action === "favorite") { const previous = state.favorite; state.favorite = !state.favorite; setTimeout(() => toast(state.favorite ? "Added to favorites" : "Removed from favorites", () => { state.favorite = previous; save(); renderAll(); }), 0); }
+      if (action === "complete") { const previous = state.status; state.status = state.status === "completed" ? "not-started" : "completed"; syncActiveSessionCompletion(id, state.status === "completed"); setTimeout(() => toast(state.status === "completed" ? "Marked complete" : "Marked incomplete", () => { state.status = previous; syncActiveSessionCompletion(id, previous === "completed"); save(); renderAll(); }), 0); }
       if (action === "route") data.route.ids = data.route.ids.includes(id) ? data.route.ids.filter(item => item !== id) : [...data.route.ids, id];
       if (action === "notes") { closeMarkerContext(); openLocation(id); setTimeout(() => $("noteField")?.focus(), 260); return; }
       if (action === "screenshot") { $("contextScreenshotInput").click(); return; }
@@ -357,7 +373,7 @@
 
   function openLocation(id, focus = false) {
     const location = byId(id); if (!location) return;
-    selectedId = id;
+    selectedId = id; data.ui.selectedId = id; save();
     const state = stateFor(id);
     const explorerHidden = data.settings.mode === "explorer" && state.status === "not-started";
     const ready = locationReadiness(location);
@@ -393,8 +409,9 @@
     $("statusSelect").onchange = event => {
       const previous = state.status;
       state.status = event.target.value;
+      syncActiveSessionCompletion(id, state.status === "completed");
       if (state.status === "completed" && previous !== "completed") data.log.unshift({ id: crypto.randomUUID?.() || Date.now(), date: new Date().toISOString(), title: `Completed: ${location.name}`, body: `${location.region} • ${location.gameCoordinates}`, locationId: location.id });
-      save(); renderAll(); openLocation(id);
+      save(); renderAll(); openLocation(id); toast(state.status === "completed" ? "Marked complete" : "Status updated", () => { state.status=previous; syncActiveSessionCompletion(id, previous === "completed"); save(); renderAll(); openLocation(id); });
     };
     $("favoriteToggle").onchange = event => { state.favorite = event.target.checked; save(); renderAll(); };
     $("noteField").oninput = event => { state.note = event.target.value; save(); };
@@ -411,7 +428,7 @@
     $("sheetBackdrop").hidden = false;
     requestAnimationFrame(() => { $("sheetBackdrop").classList.add("show"); $("detailSheet").classList.add("open"); });
     if (focus) focusLocation(location);
-    renderMarkers();
+    renderMarkers(); setTimeout(addCorrectionButton, 0);
   }
   function focusLocation(location) {
     const rect = $("viewport").getBoundingClientRect();
@@ -420,13 +437,13 @@
   }
   function closeSheet() {
     $("sheetBackdrop").classList.remove("show"); $("detailSheet").classList.remove("open");
-    selectedId = null; renderMarkers();
+    selectedId = null; data.ui.selectedId = null; save(); renderMarkers();
     setTimeout(() => $("sheetBackdrop").hidden = true, 240);
   }
   function cycleSheet() {
     const order = ["compact", "half", "full"];
     const current = $("detailSheet").dataset.size || "half";
-    $("detailSheet").dataset.size = order[(order.indexOf(current) + 1) % order.length];
+    $("detailSheet").dataset.size = order[(order.indexOf(current) + 1) % order.length]; save();
   }
 
   function nearestRoute(input) {
@@ -535,10 +552,75 @@
     document.querySelectorAll("[data-log-location]").forEach(button => button.onclick = () => { switchTab("map"); openLocation(button.dataset.logLocation, true); });
   }
 
+  function mapCenterPercent() {
+    const map = window.ACBF_MAP?.getState?.() || { x: 0, y: 0, scale: 1 };
+    const viewport = $("viewport");
+    return { x: ((viewport.clientWidth / 2 - map.x) / map.scale) / viewport.clientWidth * 100, y: ((viewport.clientHeight / 2 - map.y) / map.scale) / viewport.clientHeight * 100 };
+  }
+  function chooseNextObjective(skipCurrent = false) {
+    const incomplete = locations.filter(location => data.settings.includeCompletedSuggestions || stateFor(location.id).status !== "completed");
+    const center = mapCenterPercent();
+    const nearest = list => [...list].sort((a,b)=>Math.hypot(a.mapPosition.x-center.x,a.mapPosition.y-center.y)-Math.hypot(b.mapPosition.x-center.x,b.mapPosition.y-center.y))[0];
+    const routeNext = data.route.ids.map(byId).find(location => location && (data.settings.includeCompletedSuggestions || stateFor(location.id).status !== "completed"));
+    const pinned = byId(data.ui?.pinnedId);
+    const regionList = data.filters.region !== "all" ? incomplete.filter(location => location.region === data.filters.region) : [];
+    const visible = getVisibleLocations().filter(location => incomplete.includes(location));
+    const favorite = incomplete.filter(location => stateFor(location.id).favorite);
+    let next = routeNext || pinned || nearest(regionList) || nearest(visible) || nearest(favorite) || nearest(incomplete);
+    if (skipCurrent && next?.id === data.ui.nextObjectiveId) next = nearest(incomplete.filter(location => location.id !== next.id));
+    data.ui.nextObjectiveId = next?.id || null; save(); renderNextObjective(); renderMarkers(); return next;
+  }
+  function renderNextObjective() {
+    const host = $("nextObjectiveCard"); if (!host) return;
+    const location = byId(data.ui?.nextObjectiveId) || chooseNextObjective();
+    if (!location) { host.innerHTML = '<span>No incomplete objectives remain.</span>'; return; }
+    const routePosition = data.route.ids.indexOf(location.id);
+    host.innerHTML = `<div><small>NEXT OBJECTIVE</small><strong>${esc(location.name)}</strong><span>${esc(location.region)} • ${esc(location.gameCoordinates)} • ${esc(location.verification)}</span>${routePosition >= 0 ? `<em>Route stop ${routePosition+1} • ${Math.max(0,data.route.ids.length-routePosition-1)} remaining</em>` : ''}</div><div><button id="openNextObjective" class="primary">Open</button><button id="skipNextObjective">Choose another</button></div>`;
+    $("openNextObjective").onclick = () => openLocation(location.id, true);
+    $("skipNextObjective").onclick = () => { chooseNextObjective(true); toast("Next objective updated"); };
+  }
+  function snapshot(reason="Manual snapshot") {
+    const copy = clone(data); delete copy.snapshots;
+    data.snapshots = [{ id: Date.now(), date: new Date().toISOString(), reason, data: copy }, ...(data.snapshots||[])].slice(0,3); save(); renderBackupCenter();
+  }
+  function backupSummary() {
+    return { completed: locations.filter(l=>stateFor(l.id).status==="completed").length, favorites: locations.filter(l=>stateFor(l.id).favorite).length, notes: locations.filter(l=>stateFor(l.id).note).length, routeStops: data.route.ids.length, sessionStops: data.playSession.ids.length };
+  }
+  function renderBackupCenter() {
+    const host=$("backupCenter"); if(!host)return; const summary=backupSummary(); const latest=data.snapshots?.[0];
+    host.innerHTML=`<h2>Backup Center</h2><div class="metric-grid"><div class="metric"><span>Completed</span><strong>${summary.completed}</strong></div><div class="metric"><span>Favorites</span><strong>${summary.favorites}</strong></div><div class="metric"><span>Notes</span><strong>${summary.notes}</strong></div><div class="metric"><span>Route stops</span><strong>${summary.routeStops}</strong></div></div><p>Last export: ${data.lastBackupAt ? new Date(data.lastBackupAt).toLocaleString() : "Never"}<br>Latest recovery snapshot: ${latest ? new Date(latest.date).toLocaleString()+" — "+esc(latest.reason) : "None"}</p><div class="button-grid"><button id="createSnapshot">Create recovery snapshot</button><button id="restoreSnapshot" ${latest?'':'disabled'}>Restore latest snapshot</button></div>`;
+    $("createSnapshot").onclick=()=>{snapshot();toast("Recovery snapshot created")};
+    $("restoreSnapshot").onclick=()=>{if(!latest||!confirm("Restore the latest recovery snapshot? Current data will be snapshotted first."))return; snapshot("Before snapshot restore"); const restored=clone(latest.data); Object.keys(data).forEach(k=>delete data[k]); Object.assign(data,restored); save(); renderAll(); toast("Recovery snapshot restored")};
+  }
+  function sessionCandidates() {
+    const region=$("sessionRegion")?.value||"all", minutes=Number($("sessionMinutes")?.value||30), maxStops=Math.max(1,Number($("sessionMaxStops")?.value||8));
+    const categories=[...document.querySelectorAll('[data-session-category]:checked')].map(x=>x.value);
+    let list=locations.filter(l=>stateFor(l.id).status!=="completed" && (region==="all"||l.region===region) && (!categories.length||categories.includes(l.type)));
+    if($("sessionFavorites")?.checked) list=list.filter(l=>stateFor(l.id).favorite);
+    const perStop=$("sessionShip")?.checked?6:8; const limit=Math.min(maxStops,Math.max(1,Math.floor(minutes/perStop)));
+    return { list: nearestRoute(list).slice(0,limit), minutes };
+  }
+  function planSession() { const {list,minutes}=sessionCandidates(); data.playSession={...defaults.playSession,status:"planned",title:`${minutes}-minute Caribbean run`,ids:list.map(l=>l.id),estimatedMinutes:minutes,currentIndex:0,completedIds:[],skippedIds:[]}; save(); renderPlaySession(); toast(`Session planned with ${list.length} stops`); }
+  function syncActiveSessionCompletion(id, completed) {
+    const s=data.playSession; if(!s?.ids?.includes(id)) return;
+    s.completedIds = (s.completedIds||[]).filter(item=>item!==id);
+    if(completed) s.completedIds.push(id);
+    if(s.status==="active" && s.completedIds.length + (s.skippedIds||[]).length >= s.ids.length) s.status="completed";
+  }
+  function renderPlaySession() {
+    const host=$("playSessionPanel"); if(!host)return; const s=data.playSession; const regions=unique(locations.map(l=>l.region)).sort(); const types=unique(locations.map(l=>l.type)).sort();
+    const remaining=s.ids.filter(id=>!s.completedIds.includes(id)&&!s.skippedIds.includes(id)); const current=byId(remaining[0]);
+    host.innerHTML=`<h2>Play Session</h2><div class="session-form"><label>Starting region<select id="sessionRegion"><option value="all">Current map / all regions</option>${regions.map(r=>`<option>${esc(r)}</option>`).join('')}</select></label><label>Available time<select id="sessionMinutes"><option>15</option><option selected>30</option><option>45</option><option>60</option></select></label><label>Maximum stops<input id="sessionMaxStops" type="number" min="1" max="30" value="8"></label><label><input id="sessionShip" type="checkbox" checked> Ship travel allowed</label><label><input id="sessionFavorites" type="checkbox"> Favorites only</label><fieldset><legend>Categories</legend><div class="session-categories">${types.map(t=>`<label><input data-session-category type="checkbox" value="${esc(t)}"> ${label(t)}</label>`).join('')}</div></fieldset></div><div class="button-grid"><button id="planSession">Recalculate</button><button id="startSession" class="primary" ${s.ids.length?'':'disabled'}>${s.status==="active"?'Resume':'Start Session'}</button><button id="pauseSession" ${s.status==='active'?'':'disabled'}>Pause</button><button id="finishSession" ${s.ids.length?'':'disabled'}>Finish</button><button id="clearSession">End/Clear</button></div>${s.ids.length?`<div class="session-summary"><strong>${esc(s.title)}</strong><span>${s.completedIds.length}/${s.ids.length} complete • ${remaining.length} remaining • about ${Math.max(0,Math.round(s.estimatedMinutes*(remaining.length/Math.max(1,s.ids.length))))} min remaining</span>${current?`<button id="openSessionCurrent">Current: ${esc(current.name)}</button>`:''}<ol>${s.ids.map((id,i)=>{const l=byId(id);return l?`<li class="${s.completedIds.includes(id)?'done':''}">${i+1}. ${esc(l.name)} <button data-skip-session="${id}">Skip</button></li>`:''}).join('')}</ol></div>`:''}`;
+    $("planSession").onclick=planSession; $("startSession").onclick=()=>{data.playSession.status="active";data.playSession.startedAt ||= new Date().toISOString();data.route.ids=[...data.playSession.ids];save();renderAll();toast("Play Session started")}; $("pauseSession").onclick=()=>{data.playSession.status="paused";data.playSession.pausedAt=new Date().toISOString();save();renderPlaySession();toast("Play Session paused")}; $("finishSession").onclick=()=>{data.playSession.status="completed";save();renderPlaySession();toast("Play Session completed")}; $("clearSession").onclick=()=>{data.playSession=clone(defaults.playSession);save();renderPlaySession();toast("Session cleared")}; $("openSessionCurrent")?.addEventListener("click",()=>{switchTab("map");openLocation(current.id,true)}); document.querySelectorAll('[data-skip-session]').forEach(b=>b.onclick=()=>{data.playSession.skippedIds.push(b.dataset.skipSession);save();renderPlaySession();toast("Stop skipped")});
+  }
+  function renderHelp() { const host=$("helpPanel"); if(!host)return; host.innerHTML=`<h2>Help & Gestures</h2><div class="help-grid"><article><strong>Move and zoom</strong><p>Drag with one finger. Pinch with two fingers. Tap a cluster to zoom into nearby locations.</p></article><article><strong>Quick actions</strong><p>Tap a marker for details or hold it for favorite, completion, route, notes, and screenshot actions.</p></article><article><strong>Planning</strong><p>Next Objective chooses a sensible next stop. Play Session creates a short approximate route based on available time.</p></article><article><strong>Trust and backups</strong><p>Verification labels show source confidence. Export backups regularly; everything stays local.</p></article></div><button id="replayOnboarding">Replay onboarding</button>`; $("replayOnboarding").onclick=()=>showOnboarding(true); }
+  function showOnboarding(force=false) { if(data.settings.onboardingComplete&&!force)return; const modal=$("onboarding"); modal.hidden=false; let page=0; const pages=[['Move naturally','One finger pans. Two fingers pinch to zoom.'],['Find objectives','Tap markers, hold for quick actions, and tap clusters to expand them.'],['Plan your play','Use Next Objective or build a timed Play Session.'],['Protect progress','Export backups and use recovery snapshots before major changes.']]; const render=()=>{ $("onboardingContent").innerHTML=`<small>${page+1} of ${pages.length}</small><h2>${pages[page][0]}</h2><p>${pages[page][1]}</p>`; $("onboardingBack").disabled=page===0; $("onboardingNext").textContent=page===pages.length-1?'Start Exploring':'Next'; }; $("onboardingBack").onclick=()=>{page--;render()}; $("onboardingSkip").onclick=()=>{data.settings.onboardingComplete=true;save();modal.hidden=true}; $("onboardingNext").onclick=()=>{if(page===pages.length-1){data.settings.onboardingComplete=true;save();modal.hidden=true}else{page++;render()}}; render(); }
+  function addCorrectionButton() { if(!selectedId||$("reportCorrection"))return; const host=$("detailContent"); const b=document.createElement('button'); b.id='reportCorrection'; b.textContent='Report a correction'; b.onclick=()=>{const l=byId(selectedId); const note=prompt('Describe the correction or source evidence:'); if(!note)return; data.pendingCorrections.push({id:Date.now(),locationId:l.id,current:{name:l.name,type:l.type,region:l.region,coordinates:l.gameCoordinates},note,date:new Date().toISOString()});save();download(`correction-${l.id}.json`,data.pendingCorrections.at(-1));toast('Correction report saved locally')}; host.appendChild(b); }
   function renderSettings() {
     $("playMode").value = data.settings.mode; $("reduceMotion").checked = !!data.settings.reduceMotion;
     document.body.classList.toggle("reduce-motion", !!data.settings.reduceMotion);
     $("modeExplanation").textContent = MODE_COPY[data.settings.mode];
+    renderBackupCenter(); renderPlaySession(); renderHelp();
     $("devStats").innerHTML = `<p>Database records: ${locations.length}</p><p>Visible records: ${getVisibleLocations({ ignoreQuery: true }).length}</p><p>Saved location states: ${Object.keys(data.locations).length}</p><p>Route stops: ${data.route.ids.length}</p><p>Cache: acbf-v3.0-flagship</p>`;
   }
 
@@ -546,14 +628,14 @@
     ["hideCompleted", "favoritesOnly", "incompleteOnly", "discoveredOnly", "verifiedOnly", "legacyOnly"].forEach(key => $(key).checked = !!data.filters[key]);
   }
   function renderAll() {
-    renderCategoryControls(); renderQuickFilters(); renderRegionFilter(); renderFilterState(); renderOverview(); renderIslandExplorer(); renderDirectory(); renderMarkers(); drawRoute(); renderJackdaw(); renderProgress(); renderLog(); renderSettings(); renderRouteCandidateSummary();
+    renderCategoryControls(); renderQuickFilters(); renderRegionFilter(); renderFilterState(); renderOverview(); renderIslandExplorer(); renderDirectory(); renderMarkers(); drawRoute(); renderJackdaw(); renderProgress(); renderLog(); renderSettings(); renderRouteCandidateSummary(); renderNextObjective();
   }
 
   function switchTab(name) {
     document.querySelectorAll(".tab").forEach(tab => tab.classList.toggle("active", tab.dataset.tab === name));
     document.querySelectorAll(".app-panel").forEach(panel => panel.classList.remove("active"));
     $(`${name}Panel`).classList.add("active");
-    if (name === "map") setTimeout(() => window.dispatchEvent(new Event("resize")), 30);
+    data.ui.activeTab = name; save(); if (name === "map") setTimeout(() => window.dispatchEvent(new Event("resize")), 30);
   }
   function setBrowser(open) {
     browserOpen = open;
@@ -590,11 +672,11 @@
     const url = URL.createObjectURL(new Blob([JSON.stringify(object, null, 2)], { type: "application/json" }));
     anchor.href = url; anchor.download = name; anchor.click(); setTimeout(() => URL.revokeObjectURL(url), 1000);
   }
-  function exportBackup() { download(`animus-companion-backup-${new Date().toISOString().slice(0, 10)}.json`, { format: BACKUP_FORMAT, exportedAt: new Date().toISOString(), appVersion: APP_VERSION, data }); }
+  function exportBackup() { data.lastBackupAt = new Date().toISOString(); save(); download(`animus-companion-backup-${new Date().toISOString().slice(0, 10)}.json`, { format: BACKUP_FORMAT, exportedAt: new Date().toISOString(), appVersion: APP_VERSION, data }); }
 
   // Events
-  $("locationSearch").oninput = event => { query = event.target.value; renderDirectory(); renderMarkers(); renderOverview(); drawRoute(); };
-  $("searchAllLocations").onchange = event => { searchAcrossAll = event.target.checked; renderDirectory(); };
+  $("locationSearch").oninput = event => { query = event.target.value; data.ui.query=query; save(); renderDirectory(); renderMarkers(); renderOverview(); drawRoute(); };
+  $("searchAllLocations").onchange = event => { searchAcrossAll = event.target.checked; data.ui.searchAcrossAll=searchAcrossAll; save(); renderDirectory(); };
   $("globalSearchButton").onclick = () => { switchTab("map"); setBrowser(true); setTimeout(() => $("locationSearch").focus(), 200); };
   $("mapStatusButton").onclick = () => setBrowser(!browserOpen);
   $("brandHome").onclick = () => switchTab("map");
@@ -635,7 +717,7 @@
   $("detailSheet").addEventListener("touchend", event => { if (sheetTouchStart == null) return; const dy = (event.changedTouches[0]?.clientY || sheetTouchStart) - sheetTouchStart; sheetTouchStart = null; if (dy > 90) { const size = $("detailSheet").dataset.size; if (size === "full") $("detailSheet").dataset.size = "half"; else if (size === "half") $("detailSheet").dataset.size = "compact"; else closeSheet(); } else if (dy < -90) cycleSheet(); }, { passive: true });
   document.querySelectorAll(".tab").forEach(tab => tab.onclick = () => switchTab(tab.dataset.tab));
   window.addEventListener("acbf:map-reset", resetTemporaryMapState);
-  window.addEventListener("acbf:map-change", renderMarkers);
+  window.addEventListener("acbf:map-change", () => { renderMarkers(); clearTimeout(window.__mapSaveTimer); window.__mapSaveTimer=setTimeout(save,180); });
   $("addLogEntry").onclick = () => { const title = $("logTitle"), body = $("logBody"); if (!title.value.trim() && !body.value.trim()) return toast("Add a title or note first"); data.log.unshift({ id: crypto.randomUUID?.() || Date.now(), date: new Date().toISOString(), title: title.value.trim() || "Captain's Log", body: body.value.trim() }); title.value = ""; body.value = ""; save(); renderLog(); };
   $("logSearch").oninput = event => { logQuery = event.target.value; renderLog(); };
   $("playMode").onchange = event => { data.settings.mode = event.target.value; save(); renderAll(); toast(`${label(event.target.value)} Mode enabled`); };
@@ -647,6 +729,7 @@
       const file = event.target.files?.[0]; if (!file) return;
       const payload = JSON.parse(await file.text()); if (!validateBackup(payload)) throw new Error("Invalid backup format");
       const imported = payload.data;
+      snapshot("Before backup import");
       Object.keys(data).forEach(key => delete data[key]);
       Object.assign(data, { ...clone(defaults), ...imported, settings: { ...defaults.settings, ...(imported.settings || {}) }, filters: { ...defaults.filters, ...(imported.filters || {}) }, jackdaw: { ...defaults.jackdaw, ...(imported.jackdaw || {}) }, route: { ...defaults.route, ...(imported.route || {}) } });
       save(); renderAll(); $("settingsStatus").textContent = "Backup imported successfully.";
@@ -655,14 +738,14 @@
       $("settingsStatus").textContent = `Import failed: ${error.message}. Existing data was preserved.`;
     } finally { event.target.value = ""; }
   };
-  $("resetProgress").onclick = () => { if (confirm("Reset location progress, notes, favorites, Jackdaw tiers and log entries? Settings and filters will remain.")) { data.locations = {}; data.jackdaw = clone(defaults.jackdaw); data.log = []; data.route = clone(defaults.route); save(); renderAll(); } };
-  $("resetSettings").onclick = () => { if (confirm("Reset play mode, filters and visual settings? Progress will remain.")) { data.settings = clone(defaults.settings); data.filters = clone(defaults.filters); save(); renderAll(); } };
+  $("resetProgress").onclick = () => { if (confirm("Reset location progress, notes, favorites, Jackdaw tiers and log entries? Settings and filters will remain.")) { snapshot("Before progress reset"); data.locations = {}; data.jackdaw = clone(defaults.jackdaw); data.log = []; data.route = clone(defaults.route); save(); renderAll(); } };
+  $("resetSettings").onclick = () => { if (confirm("Reset play mode, filters and visual settings? Progress will remain.")) { snapshot("Before settings reset"); data.settings = clone(defaults.settings); data.filters = clone(defaults.filters); save(); renderAll(); } };
   $("fullReset").onclick = () => { if (confirm("Erase all Animus Companion data? This cannot be undone.")) { localStorage.removeItem(STORE); location.reload(); } };
   $("versionButton").onclick = () => { if (++devTaps >= 7) { $("devPanel").hidden = !$("devPanel").hidden; devTaps = 0; toast("Developer Mode toggled"); } };
   $("exportDiagnostics").onclick = () => download("animus-diagnostics.json", { appVersion: APP_VERSION, databaseVersion: window.ACBF_DATABASE_VERSION, records: locations.length, visibleRecords: getVisibleLocations({ ignoreQuery: true }).length, filters: data.filters, route: data.route, settings: data.settings, stateCounts: STATUS_VALUES.map(status => [status, locations.filter(location => stateFor(location.id).status === status).length]) });
 
   window.addEventListener("error", event => { console.error(event.error || event.message); toast("A recoverable app error occurred"); });
-  renderAll();
+  $("locationSearch").value=query; $("searchAllLocations").checked=searchAcrossAll; $("detailSheet").dataset.size=data.ui.sheetSize||"half"; renderAll(); switchTab(data.ui.activeTab||"map"); setTimeout(()=>{ if(data.mapView?.scale>1.001) window.ACBF_MAP?.setState?.(data.mapView); if(selectedId) openLocation(selectedId,false); showOnboarding(false); },120);
   setTimeout(() => $("bootScreen")?.classList.add("hide"), 650); setTimeout(() => $("bootScreen")?.remove(), 1150);
   if ("serviceWorker" in navigator) window.addEventListener("load", async () => {
     try {
